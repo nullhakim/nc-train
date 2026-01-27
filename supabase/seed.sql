@@ -53,16 +53,16 @@ INSERT INTO
 VALUES (
         gen_random_uuid (),
         'alfa_assets',
-        'john_doe.jpg',
+        'john_doe.png',
         '00000000-0000-0000-0000-000000000000',
-        '{"mimetype": "image/jpeg"}'
+        '{"mimetype": "image/png"}'
     ),
     (
         gen_random_uuid (),
         'alfa_assets',
-        'jane_smith.jpg',
+        'jane_smith.png',
         '00000000-0000-0000-0000-000000000000',
-        '{"mimetype": "image/jpeg"}'
+        '{"mimetype": "image/png"}'
     )
 ON CONFLICT DO NOTHING;
 
@@ -80,13 +80,13 @@ VALUES (
         'John',
         'Doe',
         'c3d4e5f6-a7b8-4c7d-0e1f-2a3b4c5d6e7f',
-        'https://placeholder.com/john.jpg'
+        'john_doe.png'
     ),
     (
         'Jane',
         'Smith',
         'b2c3d4e5-f6a7-4b6c-9d0e-1f2a3b4c5d6e',
-        'https://placeholder.com/jane.jpg'
+        'jane_smith.png'
     ),
     (
         'Alice',

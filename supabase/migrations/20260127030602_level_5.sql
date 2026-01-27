@@ -75,16 +75,29 @@ CREATE POLICY "Allow owner to manage Alfa" ON public.alfa FOR ALL TO authenticat
 -- STORAGE POLICIES
 ---
 
--- Allow public to view images
+-- 1. Allow public to view images (This one is fine)
 CREATE POLICY "Allow public read access to alfa_assets" ON storage.objects FOR
 SELECT TO public USING (bucket_id = 'alfa_assets');
 
--- Allow authenticated users to upload images
+-- 2. Allow authenticated users to INSERT (Upload)
 CREATE POLICY "Allow authenticated users to upload to alfa_assets" ON storage.objects FOR INSERT TO authenticated
 WITH
     CHECK (bucket_id = 'alfa_assets');
 
--- Allow users to delete images they "own" via the relationship to bravo
+-- 3. NEW: Allow authenticated users to UPDATE (Required for Upsert/Overwrite)
+CREATE POLICY "Allow authenticated users to update alfa_assets" ON storage.objects
+FOR UPDATE
+    TO authenticated USING (bucket_id = 'alfa_assets')
+WITH
+    CHECK (bucket_id = 'alfa_assets');
+
+-- This policy allows the service_role (your script) to bypass RLS
+-- while your other policies stay strict for 'authenticated' users.
+CREATE POLICY "Service Role Bypass" ON storage.objects FOR ALL TO service_role USING (bucket_id = 'alfa_assets')
+WITH
+    CHECK (bucket_id = 'alfa_assets');
+
+-- 4. Allow users to delete images they "own"
 CREATE POLICY "Allow users to delete their own alfa_assets" ON storage.objects FOR DELETE TO authenticated USING (
     bucket_id = 'alfa_assets'
     AND EXISTS (
@@ -93,7 +106,7 @@ CREATE POLICY "Allow users to delete their own alfa_assets" ON storage.objects F
             JOIN public.bravo b ON a.bravo_id = b.id
         WHERE
             b.user_id = auth.uid ()
-            AND a.image_url LIKE '%' || name || '%'
+            AND a.image_url LIKE '%' || storage.objects.name || '%'
     )
 );
 
