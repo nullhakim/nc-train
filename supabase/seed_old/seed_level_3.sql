@@ -1,6 +1,7 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
 
--- 1. Create a System User
+-- 1. Create a System User to own these seed records
+-- This UUID is arbitrary but consistent for seeding
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM auth.users WHERE id = '00000000-0000-0000-0000-000000000000') THEN
@@ -17,7 +18,7 @@ BEGIN
     END IF;
 END $$;
 
--- 2. Seed Bravo Table
+-- 2. Seed Bravo Table (using your specific IDs)
 INSERT INTO
     public.bravo (id, user_id, bravo_1, bravo_2)
 VALUES (
@@ -40,70 +41,32 @@ VALUES (
     )
 ON CONFLICT (id) DO NOTHING;
 
--- 3. Seed Storage Objects (The "Files")
--- This tells Supabase these files exist in the 'alfa_assets' bucket
+-- 3. Seed Alfa Table
 INSERT INTO
-    storage.objects (
-        id,
-        bucket_id,
-        name,
-        owner,
-        metadata
-    )
-VALUES (
-        gen_random_uuid (),
-        'alfa_assets',
-        'john_doe.jpg',
-        '00000000-0000-0000-0000-000000000000',
-        '{"mimetype": "image/jpeg"}'
-    ),
-    (
-        gen_random_uuid (),
-        'alfa_assets',
-        'jane_smith.jpg',
-        '00000000-0000-0000-0000-000000000000',
-        '{"mimetype": "image/jpeg"}'
-    )
-ON CONFLICT DO NOTHING;
-
--- 4. Seed Alfa Table (with image URLs)
--- We construct the URL based on your project structure: 
--- /storage/v1/object/public/[bucket_name]/[file_name]
-INSERT INTO
-    public.alfa (
-        alfa_1,
-        alfa_2,
-        bravo_id,
-        image_url
-    )
+    public.alfa (alfa_1, alfa_2, bravo_id)
 VALUES (
         'John',
         'Doe',
-        'c3d4e5f6-a7b8-4c7d-0e1f-2a3b4c5d6e7f',
-        'https://placeholder.com/john.jpg'
+        'c3d4e5f6-a7b8-4c7d-0e1f-2a3b4c5d6e7f'
     ),
     (
         'Jane',
         'Smith',
-        'b2c3d4e5-f6a7-4b6c-9d0e-1f2a3b4c5d6e',
-        'https://placeholder.com/jane.jpg'
+        'b2c3d4e5-f6a7-4b6c-9d0e-1f2a3b4c5d6e'
     ),
     (
         'Alice',
         'Johnson',
-        'a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d',
-        NULL
+        'a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d'
     ),
     (
         'Bob',
         'Brown',
-        'c3d4e5f6-a7b8-4c7d-0e1f-2a3b4c5d6e7f',
-        NULL
+        'c3d4e5f6-a7b8-4c7d-0e1f-2a3b4c5d6e7f'
     ),
     (
         'Charlie',
         'Davis',
-        'a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d',
-        NULL
+        'a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d'
     )
 ON CONFLICT DO NOTHING;
