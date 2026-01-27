@@ -18,6 +18,18 @@ const supabase = createClient(supabaseUrl, supabaseKey, {
 const BUCKET_NAME = "alfa_assets";
 
 async function seedStorage() {
+  console.log("🧹 Cleaning up bucket before seeding...");
+  
+  // 1. List all files in the bucket
+  const { data: files } = await supabase.storage.from(BUCKET_NAME).list();
+  
+  if (files && files.length > 0) {
+    // 2. Delete them all
+    const filesToRemove = files.map((x) => x.name);
+    await supabase.storage.from(BUCKET_NAME).remove(filesToRemove);
+    console.log("✅ Bucket cleared.");
+  }
+  
   console.log("🚀 Starting Storage Seed as Admin...");
 
   const filesToUpload = [
