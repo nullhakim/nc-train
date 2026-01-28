@@ -12,6 +12,8 @@
   },
 "scripts": {
   "seed:storage": "tsx seed-storage.ts",
-  "full-reset": "npx supabase db reset --linked && npm run seed:storage"
+  "deploy:func": "supabase functions deploy delete-storage-object",
+  "full-reset": "supabase db reset && npm run seed:storage",
+  "full-reset:remote": "supabase db reset --linked && npm run seed:storage"
 }
 }
