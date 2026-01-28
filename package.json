@@ -12,7 +12,7 @@
   },
 "scripts": {
   "seed:storage": "tsx seed-storage.ts",
-  "deploy:func": "supabase functions deploy delete-storage-object",
+  "deploy:func": "supabase functions deploy delete-storage-object --no-verify-jwt",
   "full-reset": "supabase db reset && npm run seed:storage",
   "full-reset:remote": "supabase db reset --linked && npm run seed:storage"
 }

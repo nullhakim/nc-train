@@ -16,7 +16,31 @@ BEGIN
 END $$;
 
 -- ==========================================
--- 2. TABLES: Bravo (Parent) & Alfa (Child)
+-- 2. SCHEMAS & EXTENSIONS
+-- ==========================================
+-- Membuat skema khusus agar ekstensi tidak mengotori skema 'public'
+CREATE SCHEMA IF NOT EXISTS extensions;
+
+-- 1. Hapus ekstensi jika ada di tempat lama (CASCADE agar fungsi yang memakainya ikut terhapus sementara)
+DROP EXTENSION IF EXISTS pg_net CASCADE;
+
+DROP EXTENSION IF EXISTS pgcrypto CASCADE;
+
+-- 2. Pasang ulang langsung ke skema extensions
+-- Install/Pindahkan ekstensi ke skema extensions
+-- pgcrypto biasanya digunakan untuk gen_random_uuid()
+CREATE EXTENSION pg_net WITH SCHEMA extensions;
+-- pg_net untuk HTTP request (Edge Functions)
+CREATE EXTENSION pgcrypto WITH SCHEMA extensions;
+
+-- 3. Berikan izin akses agar skema extensions bisa dibaca
+GRANT USAGE ON SCHEMA extensions TO postgres,
+authenticated,
+anon,
+service_role;
+
+-- ==========================================
+-- 3. TABLES: Bravo (Parent) & Alfa (Child)
 -- ==========================================
 
 -- Tabel Bravo: Tabel utama milik user
@@ -38,7 +62,7 @@ CREATE TABLE public.alfa (
 );
 
 -- ==========================================
--- 3. STORAGE: Bucket Setup
+-- 4. STORAGE: Bucket Setup
 -- ==========================================
 
 -- Membuat bucket untuk menyimpan aset alfa
@@ -52,7 +76,7 @@ VALUES (
 ON CONFLICT (id) DO NOTHING;
 
 -- ==========================================
--- 4. SECURITY: Row Level Security (RLS)
+-- 5. SECURITY: Row Level Security (RLS)
 -- ==========================================
 
 ALTER TABLE public.bravo ENABLE ROW LEVEL SECURITY;
@@ -84,7 +108,7 @@ CREATE POLICY "Allow owner to manage Alfa" ON public.alfa FOR ALL TO authenticat
 );
 
 -- ==========================================
--- 5. STORAGE POLICIES: Keamanan File
+-- 6. STORAGE POLICIES: Keamanan File
 -- ==========================================
 
 -- Publik bisa melihat gambar
@@ -118,51 +142,55 @@ CREATE POLICY "Allow users to delete their own alfa_assets" ON storage.objects F
 );
 
 -- ==========================================
--- 6. CONFIGURATION & LOGGING
+-- 7. CONFIGURATION & LOGGING
 -- ==========================================
 
--- Menyimpan URL Edge Function ke setting database agar dinamis
-ALTER DATABASE postgres
-SET
-    "app.settings.edge_function_url" TO 'https://kjntldyruleluffmmhkz.supabase.co/functions/v1/delete-storage-object';
+-- Buat tabel khusus untuk menyimpan setting aplikasi
+CREATE TABLE IF NOT EXISTS public.app_config (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 
--- Tabel Log untuk memantau proses penghapusan di Storage
+-- Masukkan URL Edge Function ke tabel
+INSERT INTO
+    public.app_config (key, value)
+VALUES (
+        'edge_function_url',
+        'https://kjntldyruleluffmmhkz.supabase.co/functions/v1/delete-storage-object'
+    )
+ON CONFLICT (key) DO
+UPDATE
+SET
+    value = EXCLUDED.value;
+
 CREATE TABLE IF NOT EXISTS public.storage_deletion_log (
-    id uuid DEFAULT gen_random_uuid () PRIMARY KEY,
+    id uuid DEFAULT extensions.gen_random_uuid () PRIMARY KEY,
     file_path TEXT NOT NULL,
-    status TEXT DEFAULT 'pending', -- 'pending', 'success', 'failed'
+    status TEXT DEFAULT 'pending',
     error_message TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
 -- ==========================================
--- 7. WEBHOOK TRIGGER: Auto-Delete Storage
+-- 8. WEBHOOK TRIGGER: Auto-Delete Storage
 -- ==========================================
-
--- Pastikan ekstensi http tersedia
-CREATE EXTENSION IF NOT EXISTS pg_net;
 
 -- Fungsi untuk memanggil Edge Function saat data Alfa dihapus
 CREATE OR REPLACE FUNCTION public.handle_delete_alfa_storage()
 RETURNS TRIGGER 
-SET search_path = public, net, vault -- Keamanan: Batasi akses skema
+SET search_path = public, extensions, net, vault
 AS $$
 DECLARE
-  service_key text;
   ef_url text;
 BEGIN
-  -- 1. Ambil API Key admin dari Vault
-  SELECT decrypted_secret INTO service_key 
-  FROM vault.decrypted_secrets WHERE name = 'service_role_key';
+  -- 1. Ambil URL dari tabel app_config
+  SELECT value INTO ef_url FROM public.app_config WHERE key = 'edge_function_url';
 
-  -- 2. Ambil URL Edge Function dari setting
-  ef_url := current_setting('app.settings.edge_function_url');
-
-  -- 3. Catat ke log sebelum mencoba menghapus
+  -- 2. Catat ke log seperti biasa
   INSERT INTO public.storage_deletion_log (file_path, status)
   VALUES (OLD.image_url, 'pending');
 
-  -- 4. Kirim sinyal ke Edge Function (Asinkron)
+  -- 3. Kirim sinyal dengan Header Kustom
   PERFORM net.http_post(
     url := ef_url,
     body := jsonb_build_object(
@@ -170,8 +198,9 @@ BEGIN
         'type', 'DELETE'
     ),
     headers := jsonb_build_object(
-        'Content-Type', 'application/json', 
-        'Authorization', 'Bearer ' || service_key
+        'Content-Type', 'application/json',
+        -- Kita pakai header kustom di sini
+        'x-custom-key', 'pasti-aman-banget-123' 
     ),
     timeout_milliseconds := 2000
   );
@@ -184,9 +213,27 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE
 OR REPLACE TRIGGER on_alfa_deleted
 AFTER DELETE ON public.alfa FOR EACH ROW
-EXECUTE FUNCTION public.handle_delete_alfa_storage ()
+EXECUTE FUNCTION public.handle_delete_alfa_storage ();
 
 -- ==========================================
--- 8. REALTIME: Aktifkan fitur Realtime
+-- 9. REALTIME: Aktifkan fitur Realtime
 -- ==========================================
-ALTER PUBLICATION supabase_realtime ADD TABLE public.bravo, public.alfa;
+ALTER PUBLICATION supabase_realtime
+ADD TABLE public.bravo,
+public.alfa;
+
+-- ==========================================
+-- 10. KEAMANAN TAMBAHAN: LOCKDOWN CONFIG & LOGS
+-- ==========================================
+
+-- 1. Aktifkan RLS
+ALTER TABLE public.app_config ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE public.storage_deletion_log ENABLE ROW LEVEL SECURITY;
+
+-- 2. Kebijakan untuk app_config: Hanya Service Role (Admin) yang bisa akses
+-- User anonim atau authenticated tidak bisa LIHAT maupun EDIT.
+CREATE POLICY "Service Role Only" ON public.app_config FOR ALL TO service_role USING (true);
+
+-- 3. Kebijakan untuk storage_deletion_log: Hanya Service Role (Admin) yang bisa akses
+CREATE POLICY "Service Role Only" ON public.storage_deletion_log FOR ALL TO service_role USING (true);
