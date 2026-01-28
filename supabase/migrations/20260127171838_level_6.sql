@@ -39,6 +39,12 @@ authenticated,
 anon,
 service_role;
 
+-- Aktifkan pg_cron di skema extensions
+CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA extensions;
+
+-- Berikan izin agar superuser bisa mengelola cron
+GRANT USAGE ON SCHEMA cron TO postgres;
+
 -- ==========================================
 -- 3. TABLES: Bravo (Parent) & Alfa (Child)
 -- ==========================================
@@ -237,3 +243,34 @@ CREATE POLICY "Service Role Only" ON public.app_config FOR ALL TO service_role U
 
 -- 3. Kebijakan untuk storage_deletion_log: Hanya Service Role (Admin) yang bisa akses
 CREATE POLICY "Service Role Only" ON public.storage_deletion_log FOR ALL TO service_role USING (true);
+
+-- ==========================================
+-- 11. CRON JOB: Pembersihan Log Otomatis
+-- ==========================================
+
+CREATE OR REPLACE FUNCTION public.cleanup_old_storage_logs()
+RETURNS void 
+SET search_path = public
+AS $$
+BEGIN
+  -- Mode Test: Hapus log yang sudah sukses/failed dan usianya > 10 detik
+  DELETE FROM public.storage_deletion_log
+  WHERE created_at < NOW() - INTERVAL '7 days'
+  AND status IN ('success', 'failed');
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Jadwalkan dengan aman (Gunakan blok DO agar tidak error di run pertama)
+DO $$
+BEGIN
+    -- Coba hapus jadwal lama jika ada
+    PERFORM cron.unschedule('daily-log-cleanup');
+EXCEPTION WHEN OTHERS THEN
+    -- Jika gagal (karena belum ada), abaikan saja dan lanjut
+    NULL; 
+END $$;
+
+-- Daftarkan ulang dengan jadwal 1 menit
+SELECT cron.schedule (
+        'daily-log-cleanup', '0 0 * * *', 'SELECT public.cleanup_old_storage_logs()'
+    );
